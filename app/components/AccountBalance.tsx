@@ -2,31 +2,65 @@
 
 import { useState, useEffect } from 'react';
 import { Wallet, DollarSign } from 'lucide-react';
+import { useAuth } from '../lib/authContext';
 
 interface AccountBalanceProps {
   userId?: string;
 }
 
 export default function AccountBalance({ userId }: AccountBalanceProps) {
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [balance, setBalance] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetchBalance();
-    // Poll for balance updates every 10 seconds
-    const interval = setInterval(fetchBalance, 10000);
-    return () => clearInterval(interval);
-  }, [userId]);
+    // Only fetch balance if user is authenticated and auth has finished loading
+    if (!authLoading && isAuthenticated) {
+      fetchBalance();
+      // Poll for balance updates every 10 seconds
+      const interval = setInterval(fetchBalance, 10000);
+      return () => clearInterval(interval);
+    } else if (!authLoading && !isAuthenticated) {
+      // User is not authenticated, set loading to false
+      setIsLoading(false);
+      setBalance(0);
+    }
+  }, [authLoading, isAuthenticated, userId]);
 
   const fetchBalance = async () => {
+    // Double check authentication before making request
+    if (!isAuthenticated) {
+      setIsLoading(false);
+      setBalance(0);
+      return;
+    }
+
     try {
-      const response = await fetch('/api/account/balance');
+      const sessionToken = localStorage.getItem('sessionToken');
+      if (!sessionToken) {
+        setIsLoading(false);
+        setBalance(0);
+        return;
+      }
+
+      const response = await fetch('/api/account/balance', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-session-token': sessionToken,
+        },
+      });
+
       if (response.ok) {
         const data = await response.json();
         setBalance(data.balance || 0);
+      } else if (response.status === 401) {
+        // Unauthorized - session may have expired
+        setBalance(0);
       }
     } catch (error) {
       console.error('Error fetching balance:', error);
+      setBalance(0);
     } finally {
       setIsLoading(false);
     }

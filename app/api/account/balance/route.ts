@@ -1,37 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getUserBalance, updateUserBalance } from '@/app/lib/balanceStore';
+import { getUserBalance, updateUserBalance } from '@/app/lib/supabaseBalanceStore';
+import { requireAuth } from '@/app/lib/authHelpers';
 
 export async function GET(request: NextRequest) {
   try {
-    // In production, get userId from session/auth
-    const userId = request.headers.get('x-user-id') || 'default-user';
-    
-    const balance = getUserBalance(userId);
+    const { userId } = await requireAuth(request);
+    const balance = await getUserBalance(userId);
 
     return NextResponse.json({ balance });
   } catch (error) {
     console.error('Balance API error:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch balance' },
-      { status: 500 }
+      { error: error instanceof Error ? error.message : 'Failed to fetch balance' },
+      { status: error instanceof Error && error.message === 'Unauthorized' ? 401 : 500 }
     );
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    const { userId } = await requireAuth(request);
     const body = await request.json();
-    const { userId, amount } = body;
+    const { amount } = body;
 
-    if (!userId || typeof amount !== 'number') {
+    if (typeof amount !== 'number') {
       return NextResponse.json(
         { error: 'Invalid request' },
         { status: 400 }
       );
     }
 
-    // Update balance using shared store (prevents server-to-server HTTP calls)
-    const newBalance = updateUserBalance(userId, amount);
+    const newBalance = await updateUserBalance(userId, amount);
 
     return NextResponse.json({
       success: true,
@@ -40,8 +39,8 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Balance update error:', error);
     return NextResponse.json(
-      { error: 'Failed to update balance' },
-      { status: 500 }
+      { error: error instanceof Error ? error.message : 'Failed to update balance' },
+      { status: error instanceof Error && error.message === 'Unauthorized' ? 401 : 500 }
     );
   }
 }

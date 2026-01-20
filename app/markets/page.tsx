@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import CryptoCard from '../components/CryptoCard';
 import { ArrowLeft, Search } from 'lucide-react';
 import Link from 'next/link';
+import ProtectedRoute from '../components/ProtectedRoute';
 
 interface CryptoData {
   symbol: string;
@@ -51,7 +52,8 @@ export default function MarketsPage() {
   );
 
   return (
-    <div className="min-h-screen p-4 md:p-8">
+    <ProtectedRoute requireAuth={true}>
+      <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex items-center space-x-4 mb-6">
@@ -59,13 +61,13 @@ export default function MarketsPage() {
             href="/"
             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
           >
-            <ArrowLeft size={20} className="text-gray-600 dark:text-gray-400" />
+              <ArrowLeft className="w-4 h-4 md:w-5 md:h-5 text-gray-600 dark:text-gray-400" />
           </Link>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
               Markets
             </h1>
-            <p className="text-gray-600 dark:text-gray-400">
+            <p className="text-sm md:text-base text-gray-600 dark:text-gray-400">
               Explore cryptocurrency markets
             </p>
           </div>
@@ -74,13 +76,13 @@ export default function MarketsPage() {
         {/* Search Bar */}
         <div className="mb-6">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 md:w-5 md:h-5" />
             <input
               type="text"
               placeholder="Search cryptocurrencies..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-9 md:pl-10 pr-3 md:pr-4 py-2 md:py-3 text-sm md:text-base rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
         </div>
@@ -89,7 +91,7 @@ export default function MarketsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredData.length === 0 ? (
             <div className="col-span-full text-center py-12">
-              <p className="text-gray-500 dark:text-gray-400">
+              <p className="text-sm md:text-base text-gray-500 dark:text-gray-400">
                 No cryptocurrencies found matching your search.
               </p>
             </div>
@@ -107,6 +109,7 @@ export default function MarketsPage() {
         </div>
       </div>
     </div>
+    </ProtectedRoute>
   );
 }
 

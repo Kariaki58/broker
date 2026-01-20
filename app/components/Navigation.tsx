@@ -1,21 +1,25 @@
 'use client';
 
 import { useState } from 'react';
-import { Home, Wallet, TrendingUp, BarChart3, ArrowDownCircle } from 'lucide-react';
+import { Home, Cpu, Users, BarChart3, ArrowDownCircle, LogIn, LogOut, UserPlus, Receipt } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth } from '../lib/authContext';
 
 export default function Navigation() {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
+  const { isAuthenticated, logout } = useAuth();
 
-  const navItems = [
-    { href: '/', icon: Home, label: 'Home' },
-    { href: '/portfolio', icon: Wallet, label: 'Portfolio' },
-    { href: '/trade', icon: TrendingUp, label: 'Trade' },
-    { href: '/markets', icon: BarChart3, label: 'Markets' },
-    { href: '/deposit', icon: ArrowDownCircle, label: 'Deposit' },
-  ];
+  const navItems = isAuthenticated
+    ? [
+        { href: '/', icon: Home, label: 'Home' },
+        { href: '/mining', icon: Cpu, label: 'Mining' },
+        { href: '/referral', icon: Users, label: 'Referral' },
+        { href: '/markets', icon: BarChart3, label: 'Markets' },
+        { href: '/transactions', icon: Receipt, label: 'Transactions' },
+      ]
+    : [];
 
   return (
     <>
@@ -40,6 +44,27 @@ export default function Navigation() {
               </Link>
             );
           })}
+          {isAuthenticated ? (
+            <button
+              onClick={logout}
+              className="flex flex-col items-center justify-center flex-1 h-full transition-colors text-gray-500 dark:text-gray-400"
+            >
+              <LogOut size={20} />
+              <span className="text-xs mt-1">Logout</span>
+            </button>
+          ) : (
+            <Link
+              href="/login"
+              className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
+                pathname === '/login'
+                  ? 'text-blue-600 dark:text-blue-400'
+                  : 'text-gray-500 dark:text-gray-400'
+              }`}
+            >
+              <LogIn size={20} />
+              <span className="text-xs mt-1">Login</span>
+            </Link>
+          )}
         </div>
       </nav>
 
@@ -69,6 +94,36 @@ export default function Navigation() {
               </Link>
             );
           })}
+          
+          {/* Auth buttons for desktop */}
+          <div className="pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
+            {isAuthenticated ? (
+              <button
+                onClick={logout}
+                className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                <LogOut size={20} />
+                <span className="font-medium">Logout</span>
+              </button>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="flex items-center space-x-3 px-4 py-3 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors mb-2"
+                >
+                  <LogIn size={20} />
+                  <span className="font-medium">Login</span>
+                </Link>
+                <Link
+                  href="/register"
+                  className="flex items-center space-x-3 px-4 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                >
+                  <UserPlus size={20} />
+                  <span className="font-medium">Sign Up</span>
+                </Link>
+              </>
+            )}
+          </div>
         </div>
       </nav>
     </>

@@ -4,7 +4,7 @@ import {
   isTransactionProcessed, 
   markTransactionProcessed,
   updateUserBalance 
-} from '@/app/lib/balanceStore';
+} from '@/app/lib/supabaseBalanceStore';
 import { 
   TOKEN_CONTRACTS, 
   TRANSFER_EVENT_SIGNATURE,
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
                 const txHash = txObj.hash;
                 
                 // Skip if already processed
-                if (isTransactionProcessed(txHash)) {
+                if (await isTransactionProcessed(txHash)) {
                   continue;
                 }
 
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
                       const usdValue = value * (TOKEN_PRICES.ETH || 2650);
 
                       // Mark as processed
-                      markTransactionProcessed(txHash);
+                      await markTransactionProcessed(txHash);
 
                       newDeposits.push({
                         txHash,
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
           const txHash = log.transactionHash;
           
           // Skip if already processed
-          if (isTransactionProcessed(txHash)) {
+          if (await isTransactionProcessed(txHash)) {
             continue;
           }
 
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
                     const usdValue = amount * (TOKEN_PRICES[tokenSymbol] || 1);
 
                     // Mark as processed
-                    markTransactionProcessed(txHash);
+                    await markTransactionProcessed(txHash);
 
                     newDeposits.push({
                       txHash,
@@ -217,8 +217,8 @@ export async function POST(request: NextRequest) {
     
     for (const deposit of newDeposits) {
       try {
-        // Update balance directly using shared store (no HTTP call needed)
-        updateUserBalance(userId, deposit.usdValue);
+        // Update balance directly using Supabase
+        await updateUserBalance(userId, deposit.usdValue);
       } catch (error) {
         console.error(`Error updating balance for deposit ${deposit.txHash}:`, error);
         // Don't fail the entire request if one balance update fails

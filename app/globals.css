@@ -47,3 +47,13 @@ button, a {
 input, textarea, select {
   font-size: 16px;
 }
+
+/* Hide scrollbar for carousel */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

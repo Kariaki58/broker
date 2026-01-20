@@ -3,7 +3,7 @@ import {
   isTransactionProcessed, 
   markTransactionProcessed,
   updateUserBalance 
-} from '@/app/lib/balanceStore';
+} from '@/app/lib/supabaseBalanceStore';
 import { TOKEN_PRICES } from '@/app/lib/tokenContracts';
 
 // This endpoint is now mainly for manual processing or webhook callbacks
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if already processed (prevent duplicates)
-    if (isTransactionProcessed(txHash)) {
+    if (await isTransactionProcessed(txHash)) {
       return NextResponse.json({
         success: true,
         message: 'Transaction already processed',
@@ -52,10 +52,10 @@ export async function POST(request: NextRequest) {
 
     // Update user balance directly (no HTTP call needed)
     const targetUserId = userId || 'default-user';
-    const newBalance = updateUserBalance(targetUserId, calculatedUsdValue);
+    const newBalance = await updateUserBalance(targetUserId, calculatedUsdValue);
     
     // Mark as processed
-    markTransactionProcessed(txHash, targetUserId);
+    await markTransactionProcessed(txHash, targetUserId);
 
     return NextResponse.json({
       success: true,
