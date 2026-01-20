@@ -6,14 +6,16 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Users table (authentication)
 CREATE TABLE IF NOT EXISTS users (
-  id TEXT PRIMARY KEY,
-  email TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
-  wallet_address TEXT,
-  referral_code TEXT UNIQUE NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  last_login TIMESTAMPTZ DEFAULT NOW(),
-  is_active BOOLEAN DEFAULT TRUE
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    wallet_address TEXT,
+    deposit_address TEXT UNIQUE, -- Unique deposit address for each user (like Flutterwave)
+    referral_code TEXT UNIQUE NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    last_login TIMESTAMPTZ DEFAULT NOW(),
+    is_active BOOLEAN DEFAULT TRUE
 );
 
 -- Sessions table
@@ -79,18 +81,75 @@ CREATE TABLE IF NOT EXISTS processed_transactions (
   processed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- User wallet addresses table (multiple addresses per user)
+CREATE TABLE IF NOT EXISTS user_wallet_addresses (
+  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  wallet_address TEXT NOT NULL,
+  label TEXT, -- Optional label/name for the wallet
+  is_active BOOLEAN DEFAULT TRUE,
+  is_primary BOOLEAN DEFAULT FALSE, -- Primary address for deposits
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, wallet_address)
+);
+
+-- Transactions table (deposit/withdrawal records)
+CREATE TABLE IF NOT EXISTS transactions (
+  id TEXT PRIMARY KEY DEFAULT uuid_generate_v4()::TEXT,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL CHECK (type IN ('deposit', 'withdrawal')),
+  tx_hash TEXT UNIQUE NOT NULL,
+  from_address TEXT,
+  to_address TEXT,
+  amount DECIMAL(18, 8) NOT NULL,
+  symbol TEXT NOT NULL,
+  usd_value DECIMAL(18, 2) NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'failed')),
+  network TEXT NOT NULL DEFAULT 'BSC',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  confirmed_at TIMESTAMPTZ
+);
+
 -- Indexes for better performance
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
-CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token);
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
-CREATE INDEX IF NOT EXISTS idx_balances_user_id ON balances(user_id);
-CREATE INDEX IF NOT EXISTS idx_mining_records_user_id ON mining_records(user_id);
-CREATE INDEX IF NOT EXISTS idx_referral_records_referrer_id ON referral_records(referrer_id);
-CREATE INDEX IF NOT EXISTS idx_referral_records_referred_id ON referral_records(referred_id);
-CREATE INDEX IF NOT EXISTS idx_referral_transactions_referral_id ON referral_transactions(referral_id);
-CREATE INDEX IF NOT EXISTS idx_processed_transactions_tx_hash ON processed_transactions(tx_hash);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
+
+CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users (referral_code);
+
+CREATE INDEX IF NOT EXISTS idx_users_deposit_address ON users (deposit_address);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions (token);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_balances_user_id ON balances (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_mining_records_user_id ON mining_records (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_referral_records_referrer_id ON referral_records (referrer_id);
+
+CREATE INDEX IF NOT EXISTS idx_referral_records_referred_id ON referral_records (referred_id);
+
+CREATE INDEX IF NOT EXISTS idx_referral_transactions_referral_id ON referral_transactions (referral_id);
+
+CREATE INDEX IF NOT EXISTS idx_processed_transactions_tx_hash ON processed_transactions (tx_hash);
+
+CREATE INDEX IF NOT EXISTS idx_user_wallet_addresses_user_id ON user_wallet_addresses (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_wallet_addresses_wallet_address ON user_wallet_addresses (wallet_address);
+
+CREATE INDEX IF NOT EXISTS idx_user_wallet_addresses_is_active ON user_wallet_addresses (is_active);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_tx_hash ON transactions (tx_hash);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions (status);
+
+CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions (created_at);
 
 -- Function to update balance updated_at timestamp
 CREATE OR REPLACE FUNCTION update_balance_updated_at()
@@ -109,49 +168,68 @@ CREATE TRIGGER update_balance_timestamp
 
 -- Row Level Security (RLS) policies
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE balances ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE mining_records ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE referral_records ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE referral_transactions ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE processed_transactions ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Users can read their own data
-CREATE POLICY "Users can read own data" ON users
-  FOR SELECT USING (true);
+CREATE POLICY "Users can read own data" ON users FOR
+SELECT USING (true);
 
-CREATE POLICY "Users can read own sessions" ON sessions
-  FOR SELECT USING (true);
+CREATE POLICY "Users can read own sessions" ON sessions FOR
+SELECT USING (true);
 
-CREATE POLICY "Users can read own balance" ON balances
-  FOR SELECT USING (true);
+CREATE POLICY "Users can read own balance" ON balances FOR
+SELECT USING (true);
 
-CREATE POLICY "Users can read own mining records" ON mining_records
-  FOR SELECT USING (true);
+CREATE POLICY "Users can read own mining records" ON mining_records FOR
+SELECT USING (true);
 
-CREATE POLICY "Users can read own referral records" ON referral_records
-  FOR SELECT USING (referrer_id = current_setting('app.user_id', true) OR referred_id = current_setting('app.user_id', true));
+CREATE POLICY "Users can read own referral records" ON referral_records FOR
+SELECT USING (
+        referrer_id = current_setting ('app.user_id', true)
+        OR referred_id = current_setting ('app.user_id', true)
+    );
 
 -- Policy: Service role can do everything (for API routes)
 -- Note: In production, use service role key in server-side code only
-CREATE POLICY "Service role full access" ON users
-  FOR ALL USING (true);
+CREATE POLICY "Service role full access" ON users FOR ALL USING (true);
 
-CREATE POLICY "Service role full access" ON sessions
-  FOR ALL USING (true);
+CREATE POLICY "Service role full access" ON sessions FOR ALL USING (true);
 
-CREATE POLICY "Service role full access" ON balances
-  FOR ALL USING (true);
+CREATE POLICY "Service role full access" ON balances FOR ALL USING (true);
 
-CREATE POLICY "Service role full access" ON mining_records
-  FOR ALL USING (true);
+CREATE POLICY "Service role full access" ON mining_records FOR ALL USING (true);
 
-CREATE POLICY "Service role full access" ON referral_records
-  FOR ALL USING (true);
+CREATE POLICY "Service role full access" ON referral_records FOR ALL USING (true);
 
-CREATE POLICY "Service role full access" ON referral_transactions
-  FOR ALL USING (true);
+CREATE POLICY "Service role full access" ON referral_transactions FOR ALL USING (true);
 
-CREATE POLICY "Service role full access" ON processed_transactions
-  FOR ALL USING (true);
+CREATE POLICY "Service role full access" ON processed_transactions FOR ALL USING (true);
 
+CREATE POLICY "Service role full access" ON user_wallet_addresses FOR ALL USING (true);
+
+CREATE POLICY "Users can read own wallet addresses" ON user_wallet_addresses FOR
+SELECT USING (
+        user_id = current_setting ('app.user_id', true)
+    );
+
+CREATE POLICY "Users can manage own wallet addresses" ON user_wallet_addresses FOR ALL USING (
+    user_id = current_setting ('app.user_id', true)
+);
+
+CREATE POLICY "Service role full access" ON transactions FOR ALL USING (true);
+
+CREATE POLICY "Users can read own transactions" ON transactions FOR
+SELECT USING (
+        user_id = current_setting ('app.user_id', true)
+    );

@@ -5,6 +5,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 interface AuthUser {
   id: string;
   email: string;
+  role: 'user' | 'admin';
   walletAddress?: string;
   referralCode: string;
 }
@@ -42,10 +43,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const user = {
               id: userData.id,
               email: userData.email,
+              role: userData.role || 'user',
               walletAddress: userData.walletAddress,
               referralCode: userData.referralCode || `REF-${userData.id.substring(0, 8).toUpperCase()}`,
             };
             setUser(user);
+
+            // Process mining rewards
+            fetch('/api/mining/process', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ userId: user.id }),
+            }).catch(err => console.error('Error processing rewards:', err));
             
             // Ensure referral code is always available
             if (!userData.referralCode) {
@@ -99,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userData = {
       id: data.user.id,
       email: data.user.email,
+      role: data.user.role || 'user',
       walletAddress: data.user.walletAddress,
       referralCode: data.user.referralCode || `REF-${data.user.id.substring(0, 8).toUpperCase()}`,
     };
@@ -142,6 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userData = {
       id: data.user.id,
       email: data.user.email,
+      role: data.user.role || 'user',
       walletAddress: data.user.walletAddress,
       referralCode: data.user.referralCode || `REF-${data.user.id.substring(0, 8).toUpperCase()}`,
     };

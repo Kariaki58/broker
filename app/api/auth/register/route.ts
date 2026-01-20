@@ -44,7 +44,9 @@ export async function POST(request: NextRequest) {
       user: {
         id: result.user.id,
         email: result.user.email,
+        role: result.user.role,
         walletAddress: result.user.walletAddress,
+        depositAddress: result.user.depositAddress,
         referralCode: result.user.referralCode,
       },
       sessionToken: result.sessionToken,

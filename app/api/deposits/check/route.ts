@@ -12,10 +12,23 @@ import {
   getTokenSymbol,
   getTokenDecimals 
 } from '@/app/lib/tokenContracts';
+import { createServerClient } from '@/app/lib/supabaseClient';
 
-// Trust Wallet address - in production, get from environment variables
-const TRUST_WALLET_ADDRESS = process.env.TRUST_WALLET_ADDRESS || '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0';
-const RPC_URL = process.env.RPC_URL || 'https://eth.llamarpc.com';
+// Trust Wallet address - Master receiving address for all deposits (BNB, USDT, USDC)
+const TRUST_WALLET_ADDRESS = process.env.TRUST_WALLET_ADDRESS || '0xbb2ced410523ec22fb7ee3008574efb7faefc6a5';
+
+// BSC RPC URLs - supports BNB, USDT, USDC on Binance Smart Chain
+// Use fallback URLs for better reliability
+// Only use BSC-specific RPC URLs (ignore generic RPC_URL which might be ETH)
+const BSC_RPC_URLS = [
+  process.env.BSC_RPC_URL, // Explicit BSC RPC from env
+  'https://bsc-dataseed1.binance.org',
+  'https://bsc-dataseed2.binance.org',
+  'https://bsc-dataseed3.binance.org',
+  'https://bsc-dataseed4.binance.org',
+  'https://bsc-dataseed.binance.org',
+  'https://bsc-mainnet.nodereal.io/v1/64a9df0874fb4a93b9d0a3849de012d3', // Public NodeReal endpoint
+].filter(Boolean) as string[];
 
 interface Deposit {
   txHash: string;
@@ -27,16 +40,69 @@ interface Deposit {
   timestamp: string;
 }
 
+// Helper function to create provider with retry logic
+async function createProvider(): Promise<ethers.JsonRpcProvider> {
+  let lastError: Error | null = null;
+  
+  for (const rpcUrl of BSC_RPC_URLS) {
+    try {
+      const provider = new ethers.JsonRpcProvider(rpcUrl, {
+        name: 'bsc',
+        chainId: 56,
+      });
+      
+      // Test connection by getting network info
+      await provider.getNetwork();
+      return provider;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.warn(`Failed to connect to RPC ${rpcUrl}:`, lastError.message);
+      continue;
+    }
+  }
+  
+  throw new Error(`Failed to connect to any BSC RPC endpoint. Last error: ${lastError?.message || 'Unknown error'}`);
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const provider = new ethers.JsonRpcProvider(RPC_URL);
+    const provider = await createProvider();
     const newDeposits: Deposit[] = [];
 
-    // Check the last 20 blocks for deposits (increased for better coverage)
+    // Check the last 10 blocks for deposits (reduced for better performance)
+    // In production, use a smaller number and run more frequently
     const currentBlock = await provider.getBlockNumber();
-    const blocksToCheck = 20;
+    const blocksToCheck = 10;
 
-    // 1. Check for native ETH deposits
+    // Helper function to find user by their sending wallet address (FROM address)
+    // Checks both users.wallet_address and user_wallet_addresses table
+    const findUserByWalletAddress = async (walletAddress: string): Promise<string | null> => {
+      const supabase = createServerClient();
+      const addressLower = walletAddress.toLowerCase();
+      
+      // First check user_wallet_addresses table (multiple addresses per user)
+      const { data: walletRecord } = await supabase
+        .from('user_wallet_addresses')
+        .select('user_id')
+        .eq('wallet_address', addressLower)
+        .eq('is_active', true)
+        .single();
+      
+      if (walletRecord) {
+        return (walletRecord as any)?.user_id || null;
+      }
+      
+      // Fallback to users.wallet_address (legacy support)
+      const { data: user } = await supabase
+        .from('users')
+        .select('id')
+        .eq('wallet_address', addressLower)
+        .single();
+      
+      return (user as any)?.id || null;
+    };
+
+    // 1. Check for native BNB deposits (BSC native token)
     for (let i = 0; i < blocksToCheck; i++) {
       const blockNumber = currentBlock - i;
       try {
@@ -48,6 +114,7 @@ export async function POST(request: NextRequest) {
             if (typeof tx === 'object' && tx !== null && 'to' in tx && 'hash' in tx && 'value' in tx && 'from' in tx) {
               const txObj = tx as { to: string | null; hash: string; value: bigint; from: string };
               
+              // Check if transaction is TO Trust Wallet address
               if (txObj.to && txObj.to.toLowerCase() === TRUST_WALLET_ADDRESS.toLowerCase()) {
                 const txHash = txObj.hash;
                 
@@ -62,23 +129,51 @@ export async function POST(request: NextRequest) {
                   if (receipt && receipt.status === 1) {
                     const value = parseFloat(ethers.formatEther(txObj.value));
                     
-                    // Only process if value > 0 (actual ETH transfer)
+                    // Only process if value > 0 (actual BNB transfer)
                     if (value > 0) {
                       const fromAddress = txObj.from;
-                      const usdValue = value * (TOKEN_PRICES.ETH || 2650);
+                      const usdValue = value * (TOKEN_PRICES.BNB || 600);
+
+                      // Find user by their sending wallet address (FROM address)
+                      const userId = await findUserByWalletAddress(fromAddress);
 
                       // Mark as processed
-                      await markTransactionProcessed(txHash);
+                      await markTransactionProcessed(txHash, userId || undefined);
 
                       newDeposits.push({
                         txHash,
                         from: fromAddress,
                         amount: value,
-                        symbol: 'ETH',
+                        symbol: 'BNB',
                         usdValue,
                         status: 'confirmed',
                         timestamp: new Date().toISOString(),
                       });
+
+                      // Update user balance and create transaction record if user found
+                      if (userId) {
+                        await updateUserBalance(userId, usdValue);
+                        
+                        // Create transaction record
+                        const supabase = createServerClient();
+                        const now = new Date().toISOString();
+                        await supabase
+                          .from('transactions')
+                          .insert({
+                            user_id: userId,
+                            type: 'deposit',
+                            tx_hash: txHash,
+                            from_address: fromAddress,
+                            to_address: TRUST_WALLET_ADDRESS,
+                            amount: value.toString(),
+                            symbol: 'BNB',
+                            usd_value: usdValue,
+                            status: 'confirmed',
+                            network: 'BSC',
+                            created_at: now,
+                            confirmed_at: now,
+                          } as any);
+                      }
                     }
                   }
                 } catch (receiptError) {
@@ -115,11 +210,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 2. Check for ERC-20 token deposits (USDT, USDC)
+    // 2. Check for BEP-20 token deposits (USDT, USDC on BSC)
     const tokenAddresses = Object.values(TOKEN_CONTRACTS);
     
     for (const tokenAddress of tokenAddresses) {
       try {
+        // Add small delay between token checks to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         // Check recent blocks for Transfer events
         const fromBlock = Math.max(0, currentBlock - blocksToCheck);
         const toBlock = currentBlock;
@@ -166,7 +264,7 @@ export async function POST(request: NextRequest) {
                 const toAddress = decodedLog.args[1];
                 const value = decodedLog.args[2];
 
-                // Verify it's going to our Trust Wallet
+                // Verify it's going to Trust Wallet
                 if (toAddress.toLowerCase() === TRUST_WALLET_ADDRESS.toLowerCase()) {
                   const tokenSymbol = getTokenSymbol(tokenAddress);
                   if (tokenSymbol) {
@@ -174,8 +272,11 @@ export async function POST(request: NextRequest) {
                     const amount = parseFloat(ethers.formatUnits(value, decimals));
                     const usdValue = amount * (TOKEN_PRICES[tokenSymbol] || 1);
 
+                    // Find user by their sending wallet address (FROM address)
+                    const userId = await findUserByWalletAddress(fromAddress);
+
                     // Mark as processed
-                    await markTransactionProcessed(txHash);
+                    await markTransactionProcessed(txHash, userId || undefined);
 
                     newDeposits.push({
                       txHash,
@@ -186,6 +287,31 @@ export async function POST(request: NextRequest) {
                       status: 'confirmed',
                       timestamp: new Date().toISOString(),
                     });
+
+                    // Update user balance and create transaction record if user found
+                    if (userId) {
+                      await updateUserBalance(userId, usdValue);
+                      
+                      // Create transaction record
+                      const supabase = createServerClient();
+                      const now = new Date().toISOString();
+                      await supabase
+                        .from('transactions')
+                        .insert({
+                          user_id: userId,
+                          type: 'deposit',
+                          tx_hash: txHash,
+                          from_address: fromAddress,
+                            to_address: TRUST_WALLET_ADDRESS,
+                          amount: amount.toString(),
+                          symbol: tokenSymbol,
+                          usd_value: usdValue,
+                          status: 'confirmed',
+                          network: 'BSC',
+                          created_at: now,
+                          confirmed_at: now,
+                        } as any);
+                    }
                   }
                 }
               }
@@ -198,8 +324,13 @@ export async function POST(request: NextRequest) {
       } catch (tokenError) {
         // Handle rate limiting and other RPC errors gracefully
         if (tokenError instanceof Error) {
-          if (tokenError.message.includes('rate limit') || tokenError.message.includes('429')) {
-            console.warn(`Rate limit hit for token ${tokenAddress}, will retry later`);
+          const errorMsg = tokenError.message.toLowerCase();
+          if (errorMsg.includes('rate limit') || errorMsg.includes('429') || errorMsg.includes('too many requests')) {
+            console.warn(`Rate limit hit for token ${tokenAddress}, skipping for now`);
+            // Add longer delay before next token check
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          } else if (errorMsg.includes('timeout') || errorMsg.includes('network')) {
+            console.warn(`Network error for token ${tokenAddress}, will retry later`);
           } else {
             console.error(`Error checking token ${tokenAddress}:`, tokenError.message);
           }
@@ -211,19 +342,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 3. Update user balances for new deposits (directly, no HTTP call)
-    // In production, match deposits to actual users
-    const userId = 'default-user'; // TODO: Implement user matching
-    
-    for (const deposit of newDeposits) {
-      try {
-        // Update balance directly using Supabase
-        await updateUserBalance(userId, deposit.usdValue);
-      } catch (error) {
-        console.error(`Error updating balance for deposit ${deposit.txHash}:`, error);
-        // Don't fail the entire request if one balance update fails
-      }
-    }
+    // Note: User balances are now updated automatically when deposits are found
+    // The findUserByWalletAddress function matches deposits to users by their registered wallet address
 
     return NextResponse.json({
       success: true,
@@ -233,10 +353,19 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Deposit check error:', error);
+    
+    // Provide more specific error messages
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const isRpcError = errorMessage.includes('RPC') || errorMessage.includes('network') || errorMessage.includes('detect');
+    
     return NextResponse.json(
       { 
         error: 'Failed to check deposits', 
-        details: error instanceof Error ? error.message : 'Unknown error' 
+        details: errorMessage,
+        ...(isRpcError && {
+          suggestion: 'Please check your BSC_RPC_URL environment variable. Ensure it points to a valid BSC RPC endpoint.',
+          availableRPCs: BSC_RPC_URLS.slice(0, 3), // Show first 3 for reference
+        }),
       },
       { status: 500 }
     );

@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import DepositFunds from '../components/DepositFunds';
 import WithdrawFunds from '../components/WithdrawFunds';
 import AccountBalance from '../components/AccountBalance';
+import WalletAddressManager from '../components/WalletAddressManager';
 import { ArrowLeft, ArrowDownCircle, ArrowUpCircle, Receipt } from 'lucide-react';
 import Link from 'next/link';
 import ProtectedRoute from '../components/ProtectedRoute';
@@ -172,6 +173,11 @@ function TransactionsContent() {
         {/* Tab Content */}
         {activeTab === 'deposit' && (
           <div className="space-y-6">
+            {/* Wallet Address Manager */}
+            <div className="bg-white dark:bg-gray-800 rounded-xl p-4 md:p-6 border border-gray-200 dark:border-gray-700">
+              <WalletAddressManager />
+            </div>
+            
             <DepositFunds onDepositSuccess={handleDepositSuccess} />
             
             {/* Instructions */}

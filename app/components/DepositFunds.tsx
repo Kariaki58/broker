@@ -2,26 +2,38 @@
 
 import { useState, useEffect } from 'react';
 import { Copy, Check, Wallet, RefreshCw, ExternalLink } from 'lucide-react';
-import { ethers } from 'ethers';
-
-// Trust Wallet address - configure in .env.local as NEXT_PUBLIC_TRUST_WALLET_ADDRESS
-// Default address for demo purposes only - REPLACE WITH YOUR ACTUAL TRUST WALLET ADDRESS
-const TRUST_WALLET_ADDRESS = process.env.NEXT_PUBLIC_TRUST_WALLET_ADDRESS || '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0';
+import { useAuth } from '@/app/lib/authContext';
 
 interface DepositFundsProps {
   onDepositSuccess?: () => void;
 }
 
 export default function DepositFunds({ onDepositSuccess }: DepositFundsProps) {
+  const { user, isAuthenticated } = useAuth();
+  const [depositAddress, setDepositAddress] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [pendingDeposits, setPendingDeposits] = useState<any[]>([]);
+  const [loadingAddress, setLoadingAddress] = useState(true);
+
+  // Trust Wallet address - Master receiving address for all users
+  const TRUST_WALLET_ADDRESS = process.env.NEXT_PUBLIC_TRUST_WALLET_ADDRESS || '0xbb2ced410523ec22fb7ee3008574efb7faefc6a5';
+
+  // Set deposit address to Trust Wallet address (same for all users)
+  useEffect(() => {
+    if (isAuthenticated) {
+      setDepositAddress(TRUST_WALLET_ADDRESS);
+      setLoadingAddress(false);
+    }
+  }, [isAuthenticated]);
 
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(TRUST_WALLET_ADDRESS);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (depositAddress) {
+      navigator.clipboard.writeText(depositAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const checkDeposits = async () => {
@@ -62,9 +74,11 @@ export default function DepositFunds({ onDepositSuccess }: DepositFundsProps) {
   };
 
   const viewOnExplorer = () => {
-    // Open in Etherscan or appropriate blockchain explorer
-    const explorerUrl = `https://etherscan.io/address/${TRUST_WALLET_ADDRESS}`;
-    window.open(explorerUrl, '_blank');
+    if (depositAddress) {
+      // Open in BSCScan (Binance Smart Chain explorer)
+      const explorerUrl = `https://bscscan.com/address/${depositAddress}`;
+      window.open(explorerUrl, '_blank');
+    }
   };
 
   return (
@@ -88,27 +102,39 @@ export default function DepositFunds({ onDepositSuccess }: DepositFundsProps) {
           <label className="block text-xs md:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Deposit Address (Trust Wallet)
           </label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="flex-1 px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <code className="text-xs sm:text-sm text-gray-900 dark:text-white break-all block">
-                {TRUST_WALLET_ADDRESS}
-              </code>
+          {loadingAddress ? (
+            <div className="px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Loading your deposit address...</p>
             </div>
-            <button
-              onClick={copyToClipboard}
-              className="p-2.5 md:p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex-shrink-0 flex items-center justify-center sm:w-auto w-full"
-              aria-label="Copy address"
-            >
-              {copied ? <Check className="w-4 h-4 md:w-5 md:h-5" /> : <Copy className="w-4 h-4 md:w-5 md:h-5" />}
-              <span className="ml-2 sm:hidden text-xs">{copied ? 'Copied!' : 'Copy'}</span>
-            </button>
-          </div>
+          ) : depositAddress ? (
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex-1 px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <code className="text-xs sm:text-sm text-gray-900 dark:text-white break-all block">
+                  {depositAddress}
+                </code>
+              </div>
+              <button
+                onClick={copyToClipboard}
+                className="p-2.5 md:p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex-shrink-0 flex items-center justify-center sm:w-auto w-full"
+                aria-label="Copy address"
+              >
+                {copied ? <Check className="w-4 h-4 md:w-5 md:h-5" /> : <Copy className="w-4 h-4 md:w-5 md:h-5" />}
+                <span className="ml-2 sm:hidden text-xs">{copied ? 'Copied!' : 'Copy'}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="px-3 sm:px-4 py-2 sm:py-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+              <p className="text-xs sm:text-sm text-red-800 dark:text-red-200">
+                Failed to load deposit address. Please refresh the page or contact support.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 sm:p-4">
           <p className="text-xs sm:text-sm text-yellow-800 dark:text-yellow-200">
-            <strong>Important:</strong> Supported cryptocurrencies: <strong>ETH, USDT, USDC</strong>. 
-            Sending unsupported tokens may result in loss of funds. Deposits are automatically detected within 1-3 minutes.
+            <strong>Important:</strong> Supported cryptocurrencies: <strong>BNB, USDT, USDC</strong> (Binance Smart Chain). 
+            Make sure you're sending from the wallet address registered in your account. Deposits are automatically detected and verified within 1-3 minutes.
           </p>
         </div>
 

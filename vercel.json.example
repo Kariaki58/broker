@@ -1,0 +1,9 @@
+{
+  "crons": [
+    {
+      "path": "/api/deposits/cron",
+      "schedule": "*/2 * * * *"
+    }
+  ]
+}
+

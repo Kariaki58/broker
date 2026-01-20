@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       id: user.id,
       email: user.email,
+      role: user.role,
       walletAddress: user.walletAddress,
       referralCode: user.referralCode || `REF-${user.id.substring(0, 8).toUpperCase()}`,
     });

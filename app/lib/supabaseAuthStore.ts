@@ -1,5 +1,6 @@
 // Supabase-based authentication store
 import { createServerClient } from './supabaseClient';
+import { generateDepositAddress } from './depositAddress';
 import { Database } from './supabase';
 
 type UserInsert = Database['public']['Tables']['users']['Insert'];
@@ -34,7 +35,9 @@ export interface AuthUser {
   id: string;
   email: string;
   passwordHash: string;
+  role: 'user' | 'admin';
   walletAddress?: string;
+  depositAddress?: string; // Unique deposit address for this user
   referralCode: string;
   createdAt: string;
   lastLogin: string;
@@ -45,7 +48,7 @@ export async function registerUser(
   email: string,
   password: string,
   walletAddress?: string,
-  referrerCode?: string
+  _referrerCode?: string
 ): Promise<{ user: AuthUser; sessionToken: string }> {
   const supabase = createServerClient();
 
@@ -73,6 +76,25 @@ export async function registerUser(
   // Generate user ID
   const userId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   
+  // Generate unique deposit address for this user (like Flutterwave)
+  let depositAddress = generateDepositAddress(userId);
+  let depositAttempts = 0;
+  
+  // Ensure deposit address uniqueness (very rare collision, but check anyway)
+  while (depositAttempts < 10) {
+    const { data: existing } = await supabase
+      .from('users')
+      .select('id')
+      .eq('deposit_address', depositAddress)
+      .single();
+    
+    if (!existing) break;
+    
+    // If collision, generate new one with modified userId
+    depositAddress = generateDepositAddress(`${userId}-${depositAttempts}`);
+    depositAttempts++;
+  }
+  
   // Generate unique referral code
   let referralCode = generateReferralCode(userId);
   let attempts = 0;
@@ -98,6 +120,7 @@ export async function registerUser(
     email: email.toLowerCase(),
     password_hash: simpleHash(password),
     wallet_address: walletAddress || null,
+    deposit_address: depositAddress,
     referral_code: referralCode,
     created_at: now,
     last_login: now,
@@ -142,7 +165,9 @@ export async function registerUser(
       id: userRow.id,
       email: userRow.email,
       passwordHash: userRow.password_hash,
+      role: userRow.role,
       walletAddress: userRow.wallet_address || undefined,
+      depositAddress: userRow.deposit_address || undefined,
       referralCode: userRow.referral_code,
       createdAt: userRow.created_at,
       lastLogin: userRow.last_login,
@@ -199,7 +224,9 @@ export async function loginUser(email: string, password: string): Promise<{ user
       id: userRow.id,
       email: userRow.email,
       passwordHash: userRow.password_hash,
+      role: userRow.role,
       walletAddress: userRow.wallet_address || undefined,
+      depositAddress: userRow.deposit_address || undefined,
       referralCode: userRow.referral_code,
       createdAt: userRow.created_at,
       lastLogin: userRow.last_login,
@@ -233,7 +260,9 @@ export async function validateSession(sessionToken: string): Promise<AuthUser | 
     id: user.id,
     email: user.email,
     passwordHash: user.password_hash,
+    role: user.role,
     walletAddress: user.wallet_address || undefined,
+    depositAddress: user.deposit_address || undefined,
     referralCode: user.referral_code,
     createdAt: user.created_at,
     lastLogin: user.last_login,
@@ -267,6 +296,7 @@ export async function getUserByEmail(email: string): Promise<AuthUser | null> {
     id: userRow.id,
     email: userRow.email,
     passwordHash: userRow.password_hash,
+    role: userRow.role,
     walletAddress: userRow.wallet_address || undefined,
     referralCode: userRow.referral_code,
     createdAt: userRow.created_at,
@@ -293,6 +323,7 @@ export async function getUserById(userId: string): Promise<AuthUser | null> {
     id: userRow.id,
     email: userRow.email,
     passwordHash: userRow.password_hash,
+    role: userRow.role,
     walletAddress: userRow.wallet_address || undefined,
     referralCode: userRow.referral_code,
     createdAt: userRow.created_at,
