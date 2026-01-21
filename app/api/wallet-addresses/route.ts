@@ -51,10 +51,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate address format (basic check)
-    if (!walletAddress.startsWith('0x') || walletAddress.length !== 42) {
+    // Validate address format (Tron TRC20)
+    if (!walletAddress.startsWith('T') || walletAddress.length !== 34) {
       return NextResponse.json(
-        { error: 'Invalid wallet address format' },
+        { error: 'Invalid Tron wallet address format (must start with T and be 34 characters)' },
         { status: 400 }
       );
     }
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       .from('user_wallet_addresses')
       .select('id')
       .eq('user_id', userId)
-      .eq('wallet_address', walletAddress.toLowerCase())
+      .eq('wallet_address', walletAddress)
       .single();
 
     if (existing) {
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
       .from('user_wallet_addresses')
       .insert({
         user_id: userId,
-        wallet_address: walletAddress.toLowerCase(),
+        wallet_address: walletAddress,
         label: label || null,
         is_active: true,
         is_primary: isPrimary,

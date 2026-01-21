@@ -25,6 +25,7 @@ export const viewport = {
 
 import Navigation from './components/Navigation';
 import { AuthProvider } from './lib/authContext';
+import { Web3Provider } from './components/Web3Provider';
 
 export default function RootLayout({
   children,
@@ -36,12 +37,14 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthProvider>
-          <Navigation />
-          <main className="pb-16 md:pb-0 md:ml-64 min-h-screen bg-gray-50 dark:bg-gray-950">
-            {children}
-          </main>
-        </AuthProvider>
+        <Web3Provider>
+          <AuthProvider>
+            <Navigation />
+            <main className="pb-16 md:pb-0 md:ml-64 min-h-screen bg-gray-50 dark:bg-gray-950">
+              {children}
+            </main>
+          </AuthProvider>
+        </Web3Provider>
       </body>
     </html>
   );

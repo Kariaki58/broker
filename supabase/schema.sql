@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS user_wallet_addresses (
   label TEXT, -- Optional label/name for the wallet
   is_active BOOLEAN DEFAULT TRUE,
   is_primary BOOLEAN DEFAULT FALSE, -- Primary address for deposits
+  purpose TEXT DEFAULT 'deposit', -- deposit | withdraw | other
+  private_key_enc TEXT, -- Encrypted private key for generated deposit addresses
   created_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, wallet_address)
 );

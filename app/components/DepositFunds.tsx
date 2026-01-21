@@ -17,15 +17,29 @@ export default function DepositFunds({ onDepositSuccess }: DepositFundsProps) {
   const [pendingDeposits, setPendingDeposits] = useState<any[]>([]);
   const [loadingAddress, setLoadingAddress] = useState(true);
 
-  // Trust Wallet address - Master receiving address for all users
-  const TRUST_WALLET_ADDRESS = process.env.NEXT_PUBLIC_TRUST_WALLET_ADDRESS || '0xbb2ced410523ec22fb7ee3008574efb7faefc6a5';
-
-  // Set deposit address to Trust Wallet address (same for all users)
+  // Fetch or create the user's unique deposit address
   useEffect(() => {
-    if (isAuthenticated) {
-      setDepositAddress(TRUST_WALLET_ADDRESS);
-      setLoadingAddress(false);
-    }
+    const loadAddress = async () => {
+      if (!isAuthenticated) return;
+      setLoadingAddress(true);
+      try {
+        const sessionToken = typeof window !== 'undefined' ? localStorage.getItem('sessionToken') : null;
+        const res = await fetch('/api/deposits/address', {
+          method: 'GET',
+          headers: sessionToken ? { 'x-session-token': sessionToken } : {},
+          credentials: 'include', // send cookies too, in case session is cookie-based
+        });
+        if (!res.ok) throw new Error('Failed to load deposit address');
+        const data = await res.json();
+        setDepositAddress(data.address);
+      } catch (err) {
+        console.error(err);
+        setDepositAddress(null);
+      } finally {
+        setLoadingAddress(false);
+      }
+    };
+    loadAddress();
   }, [isAuthenticated]);
 
   const copyToClipboard = () => {
@@ -75,8 +89,8 @@ export default function DepositFunds({ onDepositSuccess }: DepositFundsProps) {
 
   const viewOnExplorer = () => {
     if (depositAddress) {
-      // Open in BSCScan (Binance Smart Chain explorer)
-      const explorerUrl = `https://bscscan.com/address/${depositAddress}`;
+      // Open in TronScan
+      const explorerUrl = `https://tronscan.org/#/address/${depositAddress}`;
       window.open(explorerUrl, '_blank');
     }
   };
@@ -100,7 +114,7 @@ export default function DepositFunds({ onDepositSuccess }: DepositFundsProps) {
       <div className="space-y-4">
         <div>
           <label className="block text-xs md:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Deposit Address (Trust Wallet)
+            Your Deposit Address (Tron TRC20)
           </label>
           {loadingAddress ? (
             <div className="px-3 sm:px-4 py-2 sm:py-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
@@ -133,7 +147,7 @@ export default function DepositFunds({ onDepositSuccess }: DepositFundsProps) {
 
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 sm:p-4">
           <p className="text-xs sm:text-sm text-yellow-800 dark:text-yellow-200">
-            <strong>Important:</strong> Supported cryptocurrencies: <strong>BNB, USDT, USDC</strong> (Binance Smart Chain). 
+            <strong>Important:</strong> Supported cryptocurrencies: <strong>USDT, USDC</strong> (Tron TRC20). 
             Make sure you're sending from the wallet address registered in your account. Deposits are automatically detected and verified within 1-3 minutes.
           </p>
         </div>
@@ -158,7 +172,7 @@ export default function DepositFunds({ onDepositSuccess }: DepositFundsProps) {
             onClick={viewOnExplorer}
             className="flex items-center justify-center gap-2 px-4 py-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors w-full sm:w-auto text-sm sm:text-base"
           >
-            <span className="text-xs md:text-sm">View on Explorer</span>
+            <span className="text-xs md:text-sm">View on TronScan</span>
             <ExternalLink className="w-3.5 h-3.5 md:w-4 md:h-4" />
           </button>
         </div>

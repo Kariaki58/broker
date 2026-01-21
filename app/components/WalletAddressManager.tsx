@@ -176,7 +176,7 @@ export default function WalletAddressManager() {
               type="text"
               value={newAddress}
               onChange={(e) => setNewAddress(e.target.value)}
-              placeholder="0x..."
+              placeholder="T..."
               className="w-full px-3 py-2 text-xs md:text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white"
             />
           </div>

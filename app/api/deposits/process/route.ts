@@ -7,6 +7,9 @@ import {
 import { TOKEN_PRICES } from '@/app/lib/tokenContracts';
 import { createServerClient } from '@/app/lib/supabaseClient';
 
+// Trust Wallet address - Master receiving address for all deposits
+const TRUST_WALLET_ADDRESS = process.env.NEXT_PUBLIC_TRUST_WALLET_ADDRESS || process.env.TRUST_WALLET_ADDRESS || 'TLPLm1HZaBqG3cysDg321ebV9gfETxFcTy';
+
 // This endpoint is for manual processing or webhook callbacks
 // The main deposit checking happens in /api/deposits/check
 // In production, this can be triggered by:
@@ -17,7 +20,7 @@ import { createServerClient } from '@/app/lib/supabaseClient';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { txHash, amount, symbol, fromAddress, userId, usdValue } = body;
+    const { txHash, amount, symbol, fromAddress, userId, usdValue, network = 'TRON', toAddress } = body;
 
     if (!txHash || !amount || !symbol) {
       return NextResponse.json(
@@ -25,6 +28,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Validate network
+    const validNetworks = ['TRON', 'BSC', 'ETH', 'BSC_TESTNET'];
+    const depositNetwork = validNetworks.includes(network) ? network : 'TRON';
 
     // Check if already processed (prevent duplicates)
     if (await isTransactionProcessed(txHash)) {
@@ -39,19 +46,37 @@ export async function POST(request: NextRequest) {
     let targetUserId = userId;
     if (!targetUserId && fromAddress) {
       const supabase = createServerClient();
-      const { data: user } = await supabase
-        .from('users')
-        .select('id')
-        .eq('wallet_address', fromAddress.toLowerCase())
+      
+      // For TRON, addresses are case-sensitive, but check both user_wallet_addresses and users tables
+      const normalizedAddress = depositNetwork === 'TRON' ? fromAddress : fromAddress.toLowerCase();
+      
+      // Check user_wallet_addresses table first (preferred)
+      const { data: walletRecord } = await supabase
+        .from('user_wallet_addresses')
+        .select('user_id')
+        .eq('wallet_address', normalizedAddress)
+        .eq('is_active', true)
         .single();
-      targetUserId = (user as any)?.id || null;
+      
+      if (walletRecord) {
+        targetUserId = (walletRecord as any)?.user_id || null;
+      } else {
+        // Fallback to users.wallet_address
+        const { data: user } = await supabase
+          .from('users')
+          .select('id')
+          .eq('wallet_address', normalizedAddress)
+          .single();
+        targetUserId = (user as any)?.id || null;
+      }
     }
 
     if (!targetUserId) {
       return NextResponse.json(
         { 
           error: 'User not found. Please provide userId or ensure fromAddress matches a registered wallet address.',
-          fromAddress 
+          fromAddress,
+          hint: 'Make sure the wallet address is registered in your account settings.'
         },
         { status: 404 }
       );
@@ -78,12 +103,12 @@ export async function POST(request: NextRequest) {
         type: 'deposit',
         tx_hash: txHash,
         from_address: fromAddress || null,
-        to_address: process.env.TRUST_WALLET_ADDRESS || '0xbb2ced410523ec22fb7ee3008574efb7faefc6a5',
+        to_address: toAddress || TRUST_WALLET_ADDRESS,
         amount: amount.toString(),
         symbol: symbol,
         usd_value: calculatedUsdValue,
         status: 'confirmed',
-        network: 'BSC',
+        network: depositNetwork,
         created_at: now,
         confirmed_at: now,
       } as any);

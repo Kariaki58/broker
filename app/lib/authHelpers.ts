@@ -4,8 +4,15 @@ import { NextRequest } from 'next/server';
 
 export async function getUserIdFromRequest(request: NextRequest): Promise<string | null> {
   // Try to get session token from various sources
+  const bearer = request.headers.get('authorization');
+  const bearerToken = bearer?.toLowerCase().startsWith('bearer ')
+    ? bearer.slice(7).trim()
+    : null;
+  const urlToken = request.nextUrl.searchParams.get('sessionToken');
   const sessionToken = 
     request.headers.get('x-session-token') ||
+    bearerToken ||
+    urlToken ||
     request.cookies.get('sessionToken')?.value ||
     null;
 

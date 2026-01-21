@@ -17,7 +17,9 @@ A modern, mobile-first investment broker platform that accepts cryptocurrency pa
 - **Next.js 16** - React framework with App Router
 - **TypeScript** - Type-safe development
 - **Tailwind CSS** - Utility-first styling
+- **TronWeb** - Tron blockchain interaction (TRC-20)
 - **Ethers.js** - Ethereum blockchain interaction
+- **Supabase** - Database and authentication
 - **Lucide React** - Modern icon library
 
 ## Getting Started
@@ -75,11 +77,12 @@ app/
 ## Features in Detail
 
 ### Deposit System
-- Fund your account by sending cryptocurrency to the provided Trust Wallet address
-- Automatic transaction monitoring and deposit detection
-- Real-time balance updates when deposits are confirmed
-- Support for ETH, USDT, USDC and other cryptocurrencies
+- Fund your account by sending TRC-20 tokens (USDT, USDC) to the provided Trust Wallet address
+- Automatic transaction monitoring and deposit detection via TronGrid API
+- Real-time balance updates when deposits are confirmed (1-3 minutes)
+- Support for Tron TRC-20 tokens (USDT, USDC)
 - View deposit status and transaction history
+- Test payment endpoint for development testing
 
 ### Trading
 - Select from multiple cryptocurrencies
@@ -113,29 +116,64 @@ The application is designed with mobile devices as the primary target:
 
 The app includes API routes for:
 - Account balance (`/api/account/balance`)
-- Deposit checking (`/api/deposits/check`)
-- Deposit processing (`/api/deposits/process`)
+- Deposit checking (`/api/deposits/check`) - Automatically checks for TRC-20 deposits
+- Deposit processing (`/api/deposits/process`) - Manual deposit processing
+- **Test payments** (`/api/deposits/test`) - Simulate deposits for testing (development only)
 - Trade execution (`/api/trade`)
 - Market data (`/api/markets`)
 - Portfolio data (`/api/portfolio`)
 
-**Note**: Currently using mock data and in-memory storage. In production, integrate with:
-- Real cryptocurrency APIs (CoinGecko, CoinMarketCap, Binance)
-- Blockchain monitoring services (Alchemy, Infura, Moralis)
-- Database for user data, balances, and transactions
-- User authentication and session management
-- Proper transaction matching and user identification
+### TRC-20 Payment Testing
+
+The application supports Tron TRC-20 tokens (USDT, USDC) for deposits. For comprehensive testing instructions, see **[TRC20_TESTING_GUIDE.md](./TRC20_TESTING_GUIDE.md)**.
+
+**Quick Test Payment Example**:
+```bash
+curl -X POST http://localhost:3000/api/deposits/test \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "your-user-id",
+    "amount": 100,
+    "symbol": "USDT",
+    "fromAddress": "TYourTronWalletAddress",
+    "network": "TRON"
+  }'
+```
+
+See `test-payment-example.js` for a complete testing script.
+
+**Features**:
+- ✅ Real-time TRC-20 deposit detection via TronGrid API
+- ✅ Automatic balance updates on confirmed deposits
+- ✅ Test payment endpoint for development
+- ✅ Duplicate transaction prevention
+- ✅ Wallet address matching and validation
 
 ## Environment Variables
 
 Create a `.env.local` file with the following variables:
 
 ```
+# Tron TRC-20 Configuration
 TRUST_WALLET_ADDRESS=your-trust-wallet-address
 NEXT_PUBLIC_TRUST_WALLET_ADDRESS=your-trust-wallet-address
-RPC_URL=https://eth.llamarpc.com
+
+# Tron RPC Configuration
+RPC_URL=https://api.trongrid.io
+TRON_PRO_API_KEY=your-tron-pro-api-key
+
+# App Configuration
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Development/Testing
+ENABLE_TEST_PAYMENTS=true
+NODE_ENV=development
+
+# Cron Job Security (optional)
+CRON_SECRET=your-secret-token-for-cron-jobs
 ```
+
+**Note**: Get a free TronGrid API key from [trongrid.io](https://www.trongrid.io/) to enable deposit checking.
 
 ## Security Considerations
 
