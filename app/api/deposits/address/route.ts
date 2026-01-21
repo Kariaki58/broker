@@ -65,10 +65,16 @@ export async function GET(request: NextRequest) {
       throw new Error(insertError.message);
     }
 
-    // Also store on users table for quick lookup
-    await (supabase.from('users') as any)
-      .update({ deposit_address: depositAddress })
-      .eq('id', userId);
+    // Also store on users table for quick lookup (if column exists)
+    // This is optional - the primary source is user_wallet_addresses table
+    try {
+      await (supabase.from('users') as any)
+        .update({ deposit_address: depositAddress })
+        .eq('id', userId);
+    } catch (error) {
+      // Column might not exist yet - that's okay, we have user_wallet_addresses
+      console.warn('Could not update users.deposit_address (column may not exist):', error);
+    }
 
     return NextResponse.json({
       success: true,
