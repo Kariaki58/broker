@@ -14,10 +14,15 @@ interface Transaction {
   id: string;
   type: 'deposit' | 'withdrawal';
   amount: number;
-  status: 'pending' | 'completed' | 'failed';
-  timestamp: string;
+  symbol: string;
+  usdValue: number;
+  status: 'pending' | 'confirmed' | 'failed';
+  network: string;
   txHash?: string;
-  walletAddress?: string;
+  fromAddress?: string;
+  toAddress?: string;
+  timestamp: string;
+  confirmedAt?: string;
 }
 
 function TransactionsContent() {
@@ -45,22 +50,27 @@ function TransactionsContent() {
   }, []);
 
   const fetchTransactionHistory = async () => {
-    // In production, this would fetch from an API
-    // For now, we'll use mock data or localStorage
     try {
       const sessionToken = localStorage.getItem('sessionToken');
       if (!sessionToken) return;
 
-      // TODO: Implement actual API endpoint for transaction history
-      // const response = await fetch('/api/transactions', {
-      //   headers: { 'x-session-token': sessionToken },
-      // });
+      const response = await fetch('/api/transactions', {
+        headers: { 
+          'x-session-token': sessionToken,
+          'Content-Type': 'application/json',
+        },
+      });
       
-      // Mock transactions for now
-      const mockTransactions: Transaction[] = [];
-      setTransactions(mockTransactions);
+      if (response.ok) {
+        const data = await response.json();
+        setTransactions(data.transactions || []);
+      } else {
+        console.error('Failed to fetch transactions:', response.statusText);
+        setTransactions([]);
+      }
     } catch (error) {
       console.error('Error fetching transactions:', error);
+      setTransactions([]);
     }
   };
 
@@ -245,46 +255,117 @@ function TransactionsContent() {
               </div>
             ) : (
               <div className="space-y-3">
-                {transactions.map((transaction) => (
-                  <div
-                    key={transaction.id}
-                    className="flex items-center justify-between p-3 md:p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700"
-                  >
-                    <div className="flex items-center gap-2 md:gap-3">
-                      {transaction.type === 'deposit' ? (
-                        <ArrowDownCircle className="text-blue-600 dark:text-blue-400 w-5 h-5 md:w-6 md:h-6" />
-                      ) : (
-                        <ArrowUpCircle className="text-green-600 dark:text-green-400 w-5 h-5 md:w-6 md:h-6" />
-                      )}
-                      <div>
-                        <p className="text-xs md:text-sm font-medium text-gray-900 dark:text-white">
-                          {transaction.type === 'deposit' ? 'Deposit' : 'Withdrawal'}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {new Date(transaction.timestamp).toLocaleString()}
-                        </p>
+                {transactions.map((transaction) => {
+                  const getExplorerUrl = (txHash: string, network: string) => {
+                    if (network === 'TRON') {
+                      return `https://tronscan.org/#/transaction/${txHash}`;
+                    } else if (network === 'BSC') {
+                      return `https://bscscan.com/tx/${txHash}`;
+                    } else if (network === 'ETH') {
+                      return `https://etherscan.io/tx/${txHash}`;
+                    }
+                    return '#';
+                  };
+
+                  const formatAddress = (address: string | null | undefined) => {
+                    if (!address) return 'N/A';
+                    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+                  };
+
+                  return (
+                    <div
+                      key={transaction.id}
+                      className="p-3 md:p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700"
+                    >
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div className="flex items-center gap-2 md:gap-3 flex-1">
+                          {transaction.type === 'deposit' ? (
+                            <ArrowDownCircle className="text-blue-600 dark:text-blue-400 w-5 h-5 md:w-6 md:h-6 flex-shrink-0" />
+                          ) : (
+                            <ArrowUpCircle className="text-green-600 dark:text-green-400 w-5 h-5 md:w-6 md:h-6 flex-shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-xs md:text-sm font-medium text-gray-900 dark:text-white">
+                                {transaction.type === 'deposit' ? 'Deposit' : 'Withdrawal'}
+                              </p>
+                              <span className="px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 rounded">
+                                {transaction.network}
+                              </span>
+                              {transaction.symbol && transaction.symbol !== 'USD' && (
+                                <span className="px-2 py-0.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">
+                                  {transaction.symbol}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              {new Date(transaction.timestamp).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className={`text-xs md:text-sm font-semibold ${
+                            transaction.type === 'deposit'
+                              ? 'text-green-600 dark:text-green-400'
+                              : 'text-red-600 dark:text-red-400'
+                          }`}>
+                            {transaction.type === 'deposit' ? '+' : '-'}${transaction.usdValue.toFixed(2)}
+                          </p>
+                          <p className={`text-xs mt-1 ${
+                            transaction.status === 'confirmed'
+                              ? 'text-green-600 dark:text-green-400'
+                              : transaction.status === 'pending'
+                              ? 'text-yellow-600 dark:text-yellow-400'
+                              : 'text-red-600 dark:text-red-400'
+                          }`}>
+                            {transaction.status}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Transaction Details */}
+                      <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 space-y-1.5">
+                        {transaction.txHash && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-500 dark:text-gray-400">Transaction:</span>
+                            <a
+                              href={getExplorerUrl(transaction.txHash, transaction.network)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 dark:text-blue-400 hover:underline font-mono"
+                            >
+                              {formatAddress(transaction.txHash)}
+                            </a>
+                          </div>
+                        )}
+                        {transaction.fromAddress && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-500 dark:text-gray-400">From:</span>
+                            <span className="text-gray-700 dark:text-gray-300 font-mono">
+                              {formatAddress(transaction.fromAddress)}
+                            </span>
+                          </div>
+                        )}
+                        {transaction.toAddress && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-500 dark:text-gray-400">To:</span>
+                            <span className="text-gray-700 dark:text-gray-300 font-mono">
+                              {formatAddress(transaction.toAddress)}
+                            </span>
+                          </div>
+                        )}
+                        {transaction.amount > 0 && transaction.symbol && transaction.symbol !== 'USD' && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-gray-500 dark:text-gray-400">Amount:</span>
+                            <span className="text-gray-700 dark:text-gray-300 font-medium">
+                              {transaction.amount.toFixed(6)} {transaction.symbol}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className={`text-xs md:text-sm font-semibold ${
-                        transaction.type === 'deposit'
-                          ? 'text-green-600 dark:text-green-400'
-                          : 'text-red-600 dark:text-red-400'
-                      }`}>
-                        {transaction.type === 'deposit' ? '+' : '-'}${transaction.amount.toFixed(2)}
-                      </p>
-                      <p className={`text-xs ${
-                        transaction.status === 'completed'
-                          ? 'text-green-600 dark:text-green-400'
-                          : transaction.status === 'pending'
-                          ? 'text-yellow-600 dark:text-yellow-400'
-                          : 'text-red-600 dark:text-red-400'
-                      }`}>
-                        {transaction.status}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

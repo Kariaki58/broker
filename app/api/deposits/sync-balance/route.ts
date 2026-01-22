@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/app/lib/supabaseClient';
 import { getUserBalance, setUserBalance, updateUserBalance } from '@/app/lib/supabaseBalanceStore';
-import { TOKEN_CONTRACTS_TRON, TOKEN_PRICES } from '@/app/lib/tokenContracts';
+import { TOKEN_CONTRACTS_TRON, TOKEN_PRICES, getTokenDecimals } from '@/app/lib/tokenContracts';
 
 const TRON_RPC_URL = process.env.RPC_URL || 'https://api.trongrid.io';
 
@@ -53,112 +53,111 @@ export async function POST(request: NextRequest) {
 
     const userId = (walletRecord as any).user_id;
 
-    // Fetch TRC20 token balances - try multiple methods with detailed logging
+    // Fetch TRC20 token balances using public TronGrid account endpoint (no API key needed!)
     let trc20Tokens: any[] = [];
     const debugInfo: any[] = [];
 
     try {
-      // Method 1: Direct TronWeb contract queries (most reliable)
-      const { TronWeb } = await import('tronweb');
-      const tronWeb = new TronWeb({
-        fullHost: TRON_RPC_URL,
-      });
-
-      const supportedTokens = Object.entries(TOKEN_CONTRACTS_TRON);
-      for (const [symbol, contractAddress] of supportedTokens) {
-        try {
-          debugInfo.push({ method: 'TronWeb', symbol, contractAddress, status: 'trying' });
+      // Method 1: Use public TronGrid account endpoint (no authentication required)
+      // This endpoint returns account info including TRC20 balances
+      const accountEndpoint = `${TRON_RPC_URL}/v1/accounts/${depositAddress}`;
+      debugInfo.push({ method: 'TronGrid Account API', endpoint: accountEndpoint, status: 'trying' });
+      
+      const accountResponse = await fetch(accountEndpoint);
+      
+      if (accountResponse.ok) {
+        const accountData = await accountResponse.json();
+        debugInfo.push({ method: 'TronGrid Account API', success: true, hasData: !!accountData.data });
+        
+        if (accountData.data && accountData.data.length > 0) {
+          const account = accountData.data[0];
           
-          const contract = await tronWeb.contract().at(contractAddress);
-          const balance = await contract.balanceOf(depositAddress).call();
-          const decimals = await contract.decimals().call();
-          
-          const balanceStr = balance ? balance.toString() : '0';
-          const decimalsNum = decimals ? parseInt(decimals.toString()) : 6;
-          
-          debugInfo.push({ 
-            method: 'TronWeb', 
-            symbol, 
-            rawBalance: balanceStr, 
-            decimals: decimalsNum,
-            status: balanceStr !== '0' ? 'found' : 'zero'
-          });
-          
-          if (balanceStr && balanceStr !== '0') {
-            trc20Tokens.push({
-              token_address: contractAddress,
-              balance: balanceStr,
-              token_info: {
-                symbol: symbol,
-                decimals: decimalsNum.toString(),
+          // Extract TRC20 balances from the account data
+          // Format: {"TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t":"2600000"}
+          if (account.trc20 && Array.isArray(account.trc20) && account.trc20.length > 0) {
+            const trc20Balances = account.trc20[0]; // First element contains the balances object
+            
+            // Convert to array format
+            for (const [contractAddress, balanceStr] of Object.entries(trc20Balances)) {
+              // Only process supported tokens
+              // Convert to string array to avoid strict literal type checking
+              const supportedTokens: string[] = Object.values(TOKEN_CONTRACTS_TRON) as string[];
+              const contractAddrStr = String(contractAddress);
+              if (supportedTokens.includes(contractAddrStr)) {
+                // Get symbol from contract address
+                const symbol = Object.entries(TOKEN_CONTRACTS_TRON).find(
+                  ([_, addr]) => addr === contractAddrStr
+                )?.[0] || 'UNKNOWN';
+                
+                const decimals = getTokenDecimals('TRON', symbol);
+                const balance = parseFloat(balanceStr as string);
+                
+                trc20Tokens.push({
+                  token_address: contractAddress,
+                  balance: balance.toString(),
+                  token_info: {
+                    symbol: symbol,
+                    decimals: decimals.toString(),
+                  }
+                });
+                
+                debugInfo.push({ 
+                  method: 'TronGrid Account API', 
+                  symbol, 
+                  contractAddress,
+                  rawBalance: balance,
+                  decimals,
+                  status: 'found'
+                });
               }
-            });
+            }
           }
-        } catch (error) {
-          debugInfo.push({ 
-            method: 'TronWeb', 
-            symbol, 
-            error: error instanceof Error ? error.message : 'Unknown error',
-            status: 'failed'
-          });
-          console.warn(`Failed to query ${symbol} via TronWeb:`, error);
         }
+      } else {
+        debugInfo.push({ 
+          method: 'TronGrid Account API', 
+          status: accountResponse.status, 
+          statusText: accountResponse.statusText 
+        });
       }
 
-      // Method 2: Try TronGrid API (if TronWeb didn't find anything and we have API key)
-      if (trc20Tokens.length === 0 && process.env.TRON_PRO_API_KEY) {
-        try {
-          debugInfo.push({ method: 'TronGrid', status: 'trying' });
-          const endpoint = `${TRON_RPC_URL}/v1/accounts/${depositAddress}/trc20`;
-          const response = await fetch(endpoint, {
-            headers: { "TRON-PRO-API-KEY": process.env.TRON_PRO_API_KEY }
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            debugInfo.push({ method: 'TronGrid', responseData: data });
-            trc20Tokens = data.data || [];
-          } else {
-            debugInfo.push({ method: 'TronGrid', status: response.status, statusText: response.statusText });
-          }
-        } catch (error) {
-          debugInfo.push({ method: 'TronGrid', error: error instanceof Error ? error.message : 'Unknown' });
-        }
-      }
-
-      // Method 3: Try TronScan public API
+      // Method 2: Fallback to TronWeb direct contract queries if account API didn't work
       if (trc20Tokens.length === 0) {
         try {
-          debugInfo.push({ method: 'TronScan', status: 'trying' });
-          const tronscanEndpoint = `https://apilist.tronscanapi.com/api/account/tokens?address=${depositAddress}&start=0&limit=20`;
-          const tronscanResponse = await fetch(tronscanEndpoint);
-          
-          if (tronscanResponse.ok) {
-            const tronscanData = await tronscanResponse.json();
-            debugInfo.push({ method: 'TronScan', responseData: tronscanData });
-            
-            if (tronscanData.data && Array.isArray(tronscanData.data)) {
-              trc20Tokens = tronscanData.data
-                .filter((token: any) => {
-                  // Only include USDT and USDC
-                  const symbol = token.tokenAbbr?.toUpperCase();
-                  return symbol === 'USDT' || symbol === 'USDC';
-                })
-                .map((token: any) => ({
-                  token_address: token.tokenAddress,
-                  balance: token.balance?.toString() || '0',
+          const { TronWeb } = await import('tronweb');
+          const tronWeb = new TronWeb({
+            fullHost: TRON_RPC_URL,
+          });
+
+          const supportedTokens = Object.entries(TOKEN_CONTRACTS_TRON);
+          for (const [symbol, contractAddress] of supportedTokens) {
+            try {
+              debugInfo.push({ method: 'TronWeb Fallback', symbol, contractAddress, status: 'trying' });
+              
+              const contract = await tronWeb.contract().at(contractAddress);
+              const balance = await contract.balanceOf(depositAddress).call();
+              const decimals = await contract.decimals().call();
+              
+              const balanceStr = balance ? balance.toString() : '0';
+              const decimalsNum = decimals ? parseInt(decimals.toString()) : 6;
+              
+              if (balanceStr && balanceStr !== '0') {
+                trc20Tokens.push({
+                  token_address: contractAddress,
+                  balance: balanceStr,
                   token_info: {
-                    symbol: token.tokenAbbr?.toUpperCase() || 'UNKNOWN',
-                    decimals: token.tokenDecimal?.toString() || '6',
-                    name: token.tokenName,
+                    symbol: symbol,
+                    decimals: decimalsNum.toString(),
                   }
-                }));
+                });
+                debugInfo.push({ method: 'TronWeb Fallback', symbol, status: 'found' });
+              }
+            } catch (error) {
+              debugInfo.push({ method: 'TronWeb Fallback', symbol, status: 'failed' });
             }
-          } else {
-            debugInfo.push({ method: 'TronScan', status: tronscanResponse.status });
           }
         } catch (error) {
-          debugInfo.push({ method: 'TronScan', error: error instanceof Error ? error.message : 'Unknown' });
+          debugInfo.push({ method: 'TronWeb Fallback', status: 'error' });
         }
       }
     } catch (error) {

@@ -50,8 +50,8 @@ export async function POST(request: NextRequest) {
     const results: any[] = [];
 
     for (const wallet of wallets) {
-      const address = (wallet as any).wallet_address as string;
-      const pkEnc = (wallet as any).private_key_enc as string | null;
+      const address = (wallet as { wallet_address: string }).wallet_address;
+      const pkEnc = (wallet as { private_key_enc: string | null }).private_key_enc;
       if (!address || !pkEnc) {
         results.push({ address, status: 'skipped', reason: 'missing_private_key' });
         continue;
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
       let privateKey: string;
       try {
         privateKey = decryptString(pkEnc);
-      } catch (err) {
+      } catch {
         results.push({ address, status: 'skipped', reason: 'decrypt_failed' });
         continue;
       }
@@ -88,9 +88,45 @@ export async function POST(request: NextRequest) {
             continue;
           }
 
+          // ACTIVATION & FEE CHECK
+          const trxBalanceSun = await tronWeb.trx.getBalance(address);
+          const trxBalance = Number(tronWeb.fromSun(trxBalanceSun));
+          
+          if (trxBalance < 15) {
+            console.log(`Funding ${address} with TRX for gas... (Current: ${trxBalance} TRX)`);
+            const MASTER_PK = process.env.MASTER_PRIVATE_KEY;
+            
+            if (MASTER_PK) {
+              const masterTronWeb = new TronWeb({
+                fullHost: TRON_RPC_URL,
+                privateKey: MASTER_PK,
+                headers: TRON_API_KEY ? { 'TRON-PRO-API-KEY': TRON_API_KEY } : undefined,
+              });
+              
+              const fundTx = await masterTronWeb.trx.sendTransaction(address, 15_000_000); // 15 TRX in Sun
+              if (fundTx.result) {
+                results.push({ 
+                  address, 
+                  symbol, 
+                  status: 'funded', 
+                  message: 'Account activated/funded with 15 TRX for gas',
+                  txHash: fundTx.txid 
+                });
+                // Skip transfer this cycle to allow funding to confirm
+                continue; 
+              } else {
+                results.push({ address, symbol, status: 'error', error: 'Failed to fund TRX from master wallet' });
+                continue;
+              }
+            } else {
+              results.push({ address, symbol, status: 'error', error: 'MASTER_PRIVATE_KEY not configured' });
+              continue;
+            }
+          }
+
           // Transfer full balance to TRUST_WALLET_ADDRESS
           await contract.transfer(TRUST_WALLET_ADDRESS, rawStr).send({
-            feeLimit: 50_000_000, // 50 TRX sun; ensure deposit address has TRX for fees
+            feeLimit: 50_000_000, // 50 TRX sun limit for execution
           });
 
           results.push({ address, symbol, status: 'swept', amount });

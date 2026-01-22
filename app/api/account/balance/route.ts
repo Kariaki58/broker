@@ -7,6 +7,8 @@ export async function GET(request: NextRequest) {
     const { userId } = await requireAuth(request);
     const balance = await getUserBalance(userId);
 
+    console.log('Balance:', balance);
+
     return NextResponse.json({ balance });
   } catch (error) {
     console.error('Balance API error:', error);
